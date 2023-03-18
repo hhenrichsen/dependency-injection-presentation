@@ -7,18 +7,12 @@ import {
     Txt,
     TxtProps,
     View2D,
-    Node,
 } from "@motion-canvas/2d/lib/components";
-import {
-    CodeBlock,
-    CodeProps,
-} from "@motion-canvas/2d/lib/components/CodeBlock";
-import {
-    cancel,
-    Thread,
-    ThreadGenerator,
-} from "@motion-canvas/core/lib/threading";
-import { beginSlide, createRef } from "@motion-canvas/core/lib/utils";
+import { CodeProps } from "@motion-canvas/2d/lib/components/CodeBlock";
+import { PlaybackState, PlaybackStatus } from "@motion-canvas/core";
+import { all, waitFor } from "@motion-canvas/core/lib/flow";
+import { cancel, ThreadGenerator } from "@motion-canvas/core/lib/threading";
+import { beginSlide, createRef, usePlayback } from "@motion-canvas/core/lib/utils";
 import logo from "./assets/lucid.svg";
 
 const useCustomFonts = true;
@@ -66,7 +60,6 @@ export function* makeSlide(
               section?: string;
               image?: string;
               layout?: SlideLayout;
-              imageProportion?: number;
           }
         | undefined,
     slide: (params: {
@@ -77,6 +70,7 @@ export function* makeSlide(
         section: Txt;
         image?: Img;
         toCancel: ThreadGenerator[];
+        subslide: () => ThreadGenerator;
     }) => ThreadGenerator
 ): ThreadGenerator {
     const titleText = options?.title ?? "Untitled";
@@ -84,6 +78,18 @@ export function* makeSlide(
     const sectionText = options?.section;
 
     const toCancel: ThreadGenerator[] = [];
+    let slideCt = 0;
+    const subslide = () => {
+        const begin = beginSlide(
+            titleText.toLowerCase().replace(/[\W ]+/g, "-") + "-" + slideCt++
+        );
+        if (usePlayback().state != PlaybackState.Presenting) {
+            return all(
+                waitFor(5), begin
+            )
+        }
+        return begin;
+    };
 
     if (!options.layout || options.layout == SlideLayout.DEFAULT) {
         yield* defaultSlideLayout(
@@ -91,8 +97,9 @@ export function* makeSlide(
             titleText,
             toCancel,
             slide,
+            subslide,
             subtitleText,
-            sectionText
+            sectionText,
         );
     } else if (options.layout == SlideLayout.SECTION) {
         yield* sectionSlideLayout(
@@ -101,12 +108,19 @@ export function* makeSlide(
             options.image,
             toCancel,
             slide,
+            subslide,
             subtitleText,
-            sectionText,
-            options.imageProportion
+            sectionText
         );
     } else if (options.layout == SlideLayout.TITLE) {
-        yield* titleSlideLayout(view, titleText, toCancel, slide, subtitleText);
+        yield* titleSlideLayout(
+            view,
+            titleText,
+            toCancel,
+            slide,
+            subslide,
+            subtitleText,
+        );
     }
 
     yield* beginSlide(titleText.toLowerCase().replace(/[\W ]+/g, "-"));
@@ -126,7 +140,9 @@ function* defaultSlideLayout(
         section: Txt;
         image?: Img;
         toCancel: ThreadGenerator[];
+        subslide: () => ThreadGenerator;
     }) => ThreadGenerator,
+    subslide: () => ThreadGenerator,
     subtitleText?: string,
     sectionText?: string
 ): ThreadGenerator {
@@ -214,6 +230,7 @@ function* defaultSlideLayout(
         view: newView(),
         image: undefined,
         toCancel,
+        subslide,
     });
 }
 
@@ -230,10 +247,12 @@ function* sectionSlideLayout(
         section: Txt;
         image?: Img;
         toCancel: ThreadGenerator[];
+        subslide: () => ThreadGenerator;
     }) => ThreadGenerator,
+    subslide: () => ThreadGenerator,
     subtitleText?: string,
     sectionText?: string,
-    imageProportion: number = 0.3
+    imageProportion: number = 0.4
 ): ThreadGenerator {
     const newView = createRef<Layout>();
     const background = createRef<Rect>();
@@ -358,6 +377,7 @@ function* sectionSlideLayout(
         view: newView(),
         image: image(),
         toCancel,
+        subslide,
     });
 }
 
@@ -371,7 +391,9 @@ function* titleSlideLayout(
         title: Txt;
         subtitle: Txt;
         toCancel: ThreadGenerator[];
+        subslide: () => ThreadGenerator;
     }) => ThreadGenerator,
+    subslide: () => ThreadGenerator,
     subtitleText?: string
 ): ThreadGenerator {
     const newView = createRef<Layout>();
@@ -410,7 +432,9 @@ function* titleSlideLayout(
                     <Txt
                         ref={title}
                         {...DefaultTitleProps}
+                        stroke={Nord.Colors.SnowStorm2}
                         fontSize={150}
+                        lineWidth={3}
                         text={titleText}
                         lineHeight={150 * 1.2}
                     />
@@ -418,6 +442,8 @@ function* titleSlideLayout(
                         ref={subtitle}
                         {...DefaultTitleProps}
                         fontWeight={400}
+                        stroke={Nord.Colors.SnowStorm2}
+                        lineWidth={1}
                         fontSize={titleFontSize * 0.8}
                         lineHeight={titleFontSize * 1.2 * 0.8}
                         text={subtitleText}
@@ -433,5 +459,6 @@ function* titleSlideLayout(
         title: title(),
         view: newView(),
         toCancel: toCancel,
+        subslide,
     });
 }
